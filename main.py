@@ -39,13 +39,13 @@ MOOD_EMOJIS = {
     "sadness": "😢"
 }
 
-# Keep-alive thread for Render free tier
+# Keep-alive thread for Render free tier (UPDATED URL)
 def keep_alive():
     """Prevent Render from sleeping by pinging health endpoint"""
     while True:
         try:
-            # Use your actual Render URL
-            requests.get("https://zeril-bot-rbla.onrender.com/health")
+            # UPDATE THIS TO YOUR ACTUAL RENDER URL
+            requests.get("https://zeril-bot-rbla.onrender.com/health", timeout=10)
             time.sleep(300)  # Ping every 5 minutes
         except Exception as e:
             logging.error(f"Keep-alive error: {e}")
