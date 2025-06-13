@@ -1,11 +1,10 @@
 # main.py
 import os
 import re
-import time
 import logging
 import asyncio
 import requests
-from telegram import Update, Bot, User
+from telegram import Update
 from telegram.ext import (
     Application,
     CommandHandler,
@@ -13,28 +12,24 @@ from telegram.ext import (
     ContextTypes,
     filters
 )
-from transformers import pipeline
 
-# Configuration
-TOKEN = os.getenv("TELEGRAM_TOKEN")
-HF_TOKEN = os.getenv("HF_TOKEN")
+# Configuration - USE YOUR ACTUAL TOENS HERE
+TOKEN = os.getenv("TELEGRAM_TOKEN", "7545390430:AAFtuCPJ55-N4Iip70l_GlljYPf7OVDJdDc")
+HF_TOKEN = os.getenv("HF_TOKEN", "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")
 OWNER_USERNAME = "@ash_yv"  # Your Telegram username
 OWNER_NAME = "Ash"           # Your display name
 BOT_NAME = "ZERIL"           # Bot's display name
-BOT_USERNAME = "@ZERIL_Bot"  # Your bot's username (@example_bot)
+BOT_USERNAME = "@ZERIL_Bot"  # Your bot's username
 
 # Initialize models
-chat_pipe = pipeline(
-    "text-generation",
-    model="facebook/blenderbot-400M-distill",
-    token=HF_TOKEN
-)
-
-mood_pipe = pipeline(
-    "text-classification",
-    model="finiteautomata/bertweet-base-sentiment-analysis",
-    token=HF_TOKEN
-)
+try:
+    from transformers import pipeline
+    chat_pipe = pipeline("text-generation", model="facebook/blenderbot-400M-distill", token=HF_TOKEN)
+    mood_pipe = pipeline("text-classification", model="finiteautomata/bertweet-base-sentiment-analysis", token=HF_TOKEN)
+except ImportError:
+    # Fallback if transformers not available
+    chat_pipe = None
+    mood_pipe = None
 
 # Mood emoji mapping
 MOOD_EMOJIS = {
@@ -58,7 +53,7 @@ async def send_delayed_response(update: Update, response: str):
     await asyncio.sleep(1.2)
     await update.message.reply_text(response)
 
-async def is_owner(user: User) -> bool:
+async def is_owner(user) -> bool:
     """Check if user is owner"""
     return user.username and user.username.lower() == OWNER_USERNAME[1:].lower()
 
@@ -144,10 +139,16 @@ async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE):
         return
     
     # Regular conversation
-    response = await generate_response(text)
-    mood = mood_pipe(text)[0]['label']
-    emoji = MOOD_EMOJIS.get(mood, "❤️")
-    await send_delayed_response(update, f"{emoji} {response}")
+    if chat_pipe:
+        response = await generate_response(text)
+        if mood_pipe:
+            mood = mood_pipe(text)[0]['label']
+            emoji = MOOD_EMOJIS.get(mood, "❤️")
+            await send_delayed_response(update, f"{emoji} {response}")
+        else:
+            await send_delayed_response(update, f"❤️ {response}")
+    else:
+        await send_delayed_response(update, "😢 Model load nahi ho paya. Phir se try karo!")
 
 async def handle_command(update: Update, command: str):
     """Handle all commands"""
@@ -177,11 +178,7 @@ async def handle_command(update: Update, command: str):
             
             # Use Hugging Face TTS API
             headers = {"Authorization": f"Bearer {HF_TOKEN}"}
-            payload = {
-                "inputs": text,
-                "options": {"use_cache": True},
-                "parameters": {"temperature": 0.7}
-            }
+            payload = {"inputs": text}
             response = requests.post(
                 "https://api-inference.huggingface.co/models/ai4bharat/indic-tts-hi",
                 headers=headers,
@@ -215,11 +212,7 @@ async def handle_command(update: Update, command: str):
             
             # Generate image via Hugging Face API
             headers = {"Authorization": f"Bearer {HF_TOKEN}"}
-            payload = {
-                "inputs": full_prompt,
-                "options": {"use_cache": True},
-                "parameters": {"num_inference_steps": 50}
-            }
+            payload = {"inputs": full_prompt}
             response = requests.post(
                 "https://api-inference.huggingface.co/models/prompthero/openjourney",
                 headers=headers,
