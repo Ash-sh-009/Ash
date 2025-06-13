@@ -9,5 +9,5 @@ services:
         value: YOUR_ACTUAL_TOKEN
       - key: HF_TOKEN
         value: YOUR_ACTUAL_HF_TOKEN
-    dockerCommand: "python main.py"  # Critical fix!
+    dockerCommand: "python main.py"
     healthCheckPath: /health
