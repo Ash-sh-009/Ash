@@ -6,8 +6,8 @@ services:
     region: singapore
     envVars:
       - key: TELEGRAM_TOKEN
-        value: 7545390430:AAFtuCPJ55-N4Iip70l_GlljYPf7OVDJdDc  
+        value: YOUR_ACTUAL_TOKEN
       - key: HF_TOKEN
-        value: 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  
+        value: YOUR_ACTUAL_HF_TOKEN
+    dockerCommand: "python main.py"  # Critical fix!
     healthCheckPath: /health
-    autoDeploy: yes
