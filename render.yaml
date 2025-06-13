@@ -1,0 +1,12 @@
+# render.yaml
+services:
+  - type: web
+    name: zeril-bot
+    runtime: docker
+    plan: free
+    region: singapore  # or another region: mumbai, frankfurt, etc.
+    envVars:
+      - key: TELEGRAM_TOKEN
+        value: 7545390430:AAFtuCPJ55-N4Iip70l_GlljYPf7OVDJdDc
+      - key: HF_TOKEN
+        value: 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
