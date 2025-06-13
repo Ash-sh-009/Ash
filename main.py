@@ -1,3 +1,13 @@
+import threading
+import time
+
+# Keep-alive thread
+def keep_alive():
+    while True:
+        time.sleep(300)
+        requests.get("https://your-service.onrender.com/health")
+
+threading.Thread(target=keep_alive, daemon=True).start()
 import os
 import re
 import logging
