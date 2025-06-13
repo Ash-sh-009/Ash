@@ -1,13 +1,9 @@
 # fly.toml
-app = "zeril-bot"
+app = "zeril-bot-ash"
 primary_region = "iad"
 
 [build]
   builder = "heroku/buildpacks:20"
-
-[env]
-  TELEGRAM_TOKEN = "your_telegram_bot_token"
-  HF_TOKEN = "your_huggingface_token"
 
 [http_service]
   internal_port = 8080
