@@ -4,6 +4,8 @@ import re
 import logging
 import asyncio
 import requests
+import threading
+from flask import Flask
 from telegram import Update
 from telegram.ext import (
     Application,
@@ -275,6 +277,21 @@ async def detect_mood(text: str) -> str:
     except Exception as e:
         logger.error(f"Error in detect_mood: {e}")
         return "NEU"
+
+# Create a simple Flask server for health checks
+server = Flask(__name__)
+
+@server.route('/')
+def home():
+    return "ZERIL Bot is running!", 200
+
+def run_server():
+    server.run(host='0.0.0.0', port=8080)
+
+# Start the health check server in a separate thread
+t = threading.Thread(target=run_server)
+t.daemon = True
+t.start()
 
 if __name__ == "__main__":
     # Create bot application
