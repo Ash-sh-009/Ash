@@ -1,4 +1,3 @@
-# main.py
 import os
 import re
 import logging
@@ -13,13 +12,13 @@ from telegram.ext import (
     filters
 )
 
-# Configuration with YOUR TOKENS
-TOKEN = "7545390430:AAFtuCPJ55-N4Iip70l_GlljYPf7OVDJdDc"
-HF_TOKEN = "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"
-OWNER_USERNAME = "@ash_yv"
-OWNER_NAME = "Ash"
-BOT_NAME = "ZERIL"
-BOT_USERNAME = "@ZERIL_Bot"
+# Get tokens from environment variables (set in render.yaml)
+TOKEN = os.getenv("TELEGRAM_TOKEN")
+HF_TOKEN = os.getenv("HF_TOKEN")
+OWNER_USERNAME = "@ash_yv"  # Your Telegram username
+OWNER_NAME = "Ash"           # Your display name
+BOT_NAME = "ZERIL"           # Bot's display name
+BOT_USERNAME = "@ZERIL_Bot"  # Your bot's username
 
 # Hugging Face Inference API URLs
 CHAT_API_URL = "https://api-inference.huggingface.co/models/facebook/blenderbot-400M-distill"
