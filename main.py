@@ -13,23 +13,19 @@ from telegram.ext import (
     filters
 )
 
-# Configuration - USE YOUR ACTUAL TOENS HERE
-TOKEN = os.getenv("TELEGRAM_TOKEN", "7545390430:AAFtuCPJ55-N4Iip70l_GlljYPf7OVDJdDc")
-HF_TOKEN = os.getenv("HF_TOKEN", "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")
+# Configuration with YOUR TOKENS DIRECTLY SET
+TOKEN = "7545390430:AAFtuCPJ55-N4Iip70l_GlljYPf7OVDJdDc"  # Your Telegram bot token
+HF_TOKEN = "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"        # Your Hugging Face token
 OWNER_USERNAME = "@ash_yv"  # Your Telegram username
 OWNER_NAME = "Ash"           # Your display name
 BOT_NAME = "ZERIL"           # Bot's display name
 BOT_USERNAME = "@ZERIL_Bot"  # Your bot's username
 
-# Initialize models
-try:
-    from transformers import pipeline
-    chat_pipe = pipeline("text-generation", model="facebook/blenderbot-400M-distill", token=HF_TOKEN)
-    mood_pipe = pipeline("text-classification", model="finiteautomata/bertweet-base-sentiment-analysis", token=HF_TOKEN)
-except ImportError:
-    # Fallback if transformers not available
-    chat_pipe = None
-    mood_pipe = None
+# Hugging Face Inference API URLs
+CHAT_API_URL = "https://api-inference.huggingface.co/models/facebook/blenderbot-400M-distill"
+MOOD_API_URL = "https://api-inference.huggingface.co/models/finiteautomata/bertweet-base-sentiment-analysis"
+TTS_API_URL = "https://api-inference.huggingface.co/models/ai4bharat/indic-tts-hi"
+IMAGE_API_URL = "https://api-inference.huggingface.co/models/prompthero/openjourney"
 
 # Mood emoji mapping
 MOOD_EMOJIS = {
@@ -47,6 +43,11 @@ logging.basicConfig(
     level=logging.INFO
 )
 logger = logging.getLogger(__name__)
+
+def query_hf_api(api_url, payload):
+    headers = {"Authorization": f"Bearer {HF_TOKEN}"}
+    response = requests.post(api_url, headers=headers, json=payload)
+    return response.json()
 
 async def send_delayed_response(update: Update, response: str):
     """Send response with 1.2s delay"""
@@ -138,17 +139,13 @@ async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE):
         await handle_command(update, text)
         return
     
-    # Regular conversation
-    if chat_pipe:
-        response = await generate_response(text)
-        if mood_pipe:
-            mood = mood_pipe(text)[0]['label']
-            emoji = MOOD_EMOJIS.get(mood, "❤️")
-            await send_delayed_response(update, f"{emoji} {response}")
-        else:
-            await send_delayed_response(update, f"❤️ {response}")
-    else:
-        await send_delayed_response(update, "😢 Model load nahi ho paya. Phir se try karo!")
+    # Regular conversation - using HF Inference API
+    # Remove bot mention
+    cleaned_text = re.sub(rf'{BOT_USERNAME}|{BOT_NAME}', '', text, flags=re.IGNORECASE).strip()
+    response = await generate_response(cleaned_text)
+    mood = await detect_mood(cleaned_text)
+    emoji = MOOD_EMOJIS.get(mood, "❤️")
+    await send_delayed_response(update, f"{emoji} {response}")
 
 async def handle_command(update: Update, command: str):
     """Handle all commands"""
@@ -180,7 +177,7 @@ async def handle_command(update: Update, command: str):
             headers = {"Authorization": f"Bearer {HF_TOKEN}"}
             payload = {"inputs": text}
             response = requests.post(
-                "https://api-inference.huggingface.co/models/ai4bharat/indic-tts-hi",
+                TTS_API_URL,
                 headers=headers,
                 json=payload,
                 timeout=10
@@ -214,7 +211,7 @@ async def handle_command(update: Update, command: str):
             headers = {"Authorization": f"Bearer {HF_TOKEN}"}
             payload = {"inputs": full_prompt}
             response = requests.post(
-                "https://api-inference.huggingface.co/models/prompthero/openjourney",
+                IMAGE_API_URL,
                 headers=headers,
                 json=payload,
                 timeout=20
@@ -248,19 +245,36 @@ async def handle_command(update: Update, command: str):
         await send_delayed_response(update, "😢 Oops! Kuch toh gadbad ho gaya. Phir se try karo")
 
 async def generate_response(text: str) -> str:
-    """Generate response using LLM"""
-    # Remove bot mention if present
-    cleaned_text = re.sub(rf'{BOT_USERNAME}|{BOT_NAME}', '', text, flags=re.IGNORECASE).strip()
-    
-    # Generate response using BlenderBot
-    response = chat_pipe(
-        cleaned_text,
-        max_length=100,
-        num_return_sequences=1
-    )[0]['generated_text']
-    
-    # Convert to Hinglish-style response
-    return response.replace("I'm", "Main").replace("you", "tum").replace("your", "tumhara")
+    """Generate response using HF Inference API"""
+    if not text:
+        return "Kuch toh bolo yaar!"
+    payload = {"inputs": text}
+    try:
+        response = query_hf_api(CHAT_API_URL, payload)
+        # Extract the generated text from the response
+        if isinstance(response, list) and len(response) > 0:
+            return response[0]['generated_text']
+        elif isinstance(response, dict) and 'generated_text' in response:
+            return response['generated_text']
+        else:
+            return "Mujhe samajh nahi aaya, phir se try karo."
+    except Exception as e:
+        logger.error(f"Error in generate_response: {e}")
+        return "Mera dimag kharaab ho gaya, baad mein try karo."
+
+async def detect_mood(text: str) -> str:
+    """Detect mood using HF Inference API"""
+    if not text:
+        return "NEU"
+    payload = {"inputs": text}
+    try:
+        response = query_hf_api(MOOD_API_URL, payload)
+        if isinstance(response, list) and len(response) > 0:
+            return response[0]['label']
+        return "NEU"
+    except Exception as e:
+        logger.error(f"Error in detect_mood: {e}")
+        return "NEU"
 
 if __name__ == "__main__":
     # Create bot application
@@ -272,6 +286,8 @@ if __name__ == "__main__":
     app.add_handler(CommandHandler("joke", handle_command))
     app.add_handler(CommandHandler("tts", handle_command))
     app.add_handler(CommandHandler("img", handle_command))
+    app.add_handler(CommandHandler("flames", handle_command))
+    app.add_handler(CommandHandler("setbio", handle_command))
     app.add_handler(MessageHandler(filters.TEXT & ~filters.COMMAND, handle_message))
     
     # Start polling
