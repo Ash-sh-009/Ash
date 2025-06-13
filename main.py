@@ -1,19 +1,10 @@
-import threading
-import time
-
-# Keep-alive thread
-def keep_alive():
-    while True:
-        time.sleep(300)
-        requests.get("https://your-service.onrender.com/health")
-
-threading.Thread(target=keep_alive, daemon=True).start()
 import os
 import re
 import logging
 import asyncio
 import requests
 import threading
+import time
 from http.server import BaseHTTPRequestHandler, HTTPServer
 from telegram import Update
 from telegram.ext import (
@@ -47,6 +38,21 @@ MOOD_EMOJIS = {
     "joy": "❤️",
     "sadness": "😢"
 }
+
+# Keep-alive thread for Render free tier
+def keep_alive():
+    """Prevent Render from sleeping by pinging health endpoint"""
+    while True:
+        try:
+            # Use your actual Render URL
+            requests.get("https://zeril-bot-rbla.onrender.com/health")
+            time.sleep(300)  # Ping every 5 minutes
+        except Exception as e:
+            logging.error(f"Keep-alive error: {e}")
+            time.sleep(60)
+
+# Start keep-alive in background
+threading.Thread(target=keep_alive, daemon=True).start()
 
 # Logging setup
 logging.basicConfig(
