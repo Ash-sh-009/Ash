@@ -3,6 +3,8 @@ import re
 import logging
 import asyncio
 import requests
+import threading
+from http.server import BaseHTTPRequestHandler, HTTPServer
 from telegram import Update
 from telegram.ext import (
     Application,
@@ -12,7 +14,7 @@ from telegram.ext import (
     filters
 )
 
-# Get tokens from environment variables (set in render.yaml)
+# Get tokens from environment variables
 TOKEN = os.getenv("TELEGRAM_TOKEN")
 HF_TOKEN = os.getenv("HF_TOKEN")
 OWNER_USERNAME = "@ash_yv"  # Your Telegram username
@@ -42,6 +44,23 @@ logging.basicConfig(
     level=logging.INFO
 )
 logger = logging.getLogger(__name__)
+
+# Health Check Server
+class HealthHandler(BaseHTTPRequestHandler):
+    def do_GET(self):
+        if self.path == '/health':
+            self.send_response(200)
+            self.end_headers()
+            self.wfile.write(b'OK')
+        else:
+            self.send_response(404)
+            self.end_headers()
+
+def run_health_server():
+    port = int(os.environ.get('PORT', 5000))
+    server = HTTPServer(('0.0.0.0', port), HealthHandler)
+    logger.info(f"Health server running on port {port}")
+    server.serve_forever()
 
 def query_hf_api(api_url, payload):
     headers = {"Authorization": f"Bearer {HF_TOKEN}"}
@@ -189,6 +208,7 @@ async def handle_command(update: Update, command: str):
                     voice=open("tts_output.mp3", "rb"),
                     caption=f"❤️ {BOT_NAME} ki awaaz mein: {text}"
                 )
+                os.remove("tts_output.mp3")  # Clean up
             else:
                 await send_delayed_response(update, "😢 Sorry, voice generate nahi kar paya. Phir se try karo!")
         
@@ -223,6 +243,7 @@ async def handle_command(update: Update, command: str):
                     photo=open("generated_image.jpg", "rb"),
                     caption=f"🖼️ {BOT_NAME} ne banaya: {prompt}"
                 )
+                os.remove("generated_image.jpg")  # Clean up
             else:
                 await send_delayed_response(update, "😢 Image generate nahi ho paya. Phir se try karo!")
         
@@ -276,6 +297,10 @@ async def detect_mood(text: str) -> str:
         return "NEU"
 
 if __name__ == "__main__":
+    # Start health server in a separate thread
+    health_thread = threading.Thread(target=run_health_server, daemon=True)
+    health_thread.start()
+
     # Create bot application
     app = Application.builder().token(TOKEN).build()
 
