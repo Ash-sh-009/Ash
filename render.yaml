@@ -1,12 +1,13 @@
-# render.yaml
 services:
   - type: web
     name: zeril-bot
     runtime: docker
     plan: free
-    region: singapore  # or another region: mumbai, frankfurt, etc.
+    region: singapore
     envVars:
       - key: TELEGRAM_TOKEN
-        value: 7545390430:AAFtuCPJ55-N4Iip70l_GlljYPf7OVDJdDc
+        value: YOUR_TELEGRAM_BOT_TOKEN
       - key: HF_TOKEN
-        value: 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
+        value: YOUR_HUGGINGFACE_API_TOKEN
+    healthCheckPath: /health
+    autoDeploy: yes
