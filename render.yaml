@@ -6,8 +6,8 @@ services:
     region: singapore
     envVars:
       - key: TELEGRAM_TOKEN
-        value: YOUR_TELEGRAM_BOT_TOKEN
+        value: 7545390430:AAFtuCPJ55-N4Iip70l_GlljYPf7OVDJdDc  
       - key: HF_TOKEN
-        value: YOUR_HUGGINGFACE_API_TOKEN
+        value: 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  
     healthCheckPath: /health
     autoDeploy: yes
