@@ -1,0 +1,19 @@
+services:
+  - type: web
+    name: zeril-telegram-bot
+    env: docker
+    plan: free
+    dockerfilePath: ./Dockerfile
+    envVars:
+      - key: TELEGRAM_TOKEN
+        value: 8048986424:AAE37IBwkCzE5oKtGCdN-mnnsMrcrlzGWUQ
+      - key: HUGGINGFACE_API_KEY  
+        value: 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
+      - key: GEMINI_API_KEY
+        value: AIzaSyAIz_ExwLXrU5WIm6iiiBSZ66KkHO5NidQ
+      - key: PORT
+        value: 8000
+    buildCommand: echo "Building ZERIL Bot..."
+    startCommand: python main.py
+    healthCheckPath: /health
+    autoDeploy: true
