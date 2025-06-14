@@ -1,13 +1,14 @@
 services:
   - type: web
-    name: zeril-bot
-    runtime: docker
+    name: zeril-telegram-bot
+    env: docker
     plan: free
-    region: singapore
+    dockerfilePath: ./Dockerfile
     envVars:
-      - key: TELEGRAM_TOKEN
-        value: YOUR_ACTUAL_TOKEN
-      - key: HF_TOKEN
-        value: YOUR_ACTUAL_HF_TOKEN
-    dockerCommand: "python main.py"
-    healthCheckPath: /health
+      - key: BOT_TOKEN
+        value: 8048986424:AAE37IBwkCzE5oKtGCdN-mnnsMrcrlzGWUQ
+      - key: HF_API_KEY
+        value: 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
+      - key: PORT
+        value: 8080
+    healthCheckPath: /
