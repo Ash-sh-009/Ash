@@ -1,335 +1,338 @@
 import os
-import re
-import logging
 import asyncio
-import requests
-import threading
 import time
-from http.server import BaseHTTPRequestHandler, HTTPServer
-from telegram import Update
-from telegram.ext import (
-    Application,
-    CommandHandler,
-    MessageHandler,
-    ContextTypes,
-    filters
-)
+import random
+import re
+from datetime import datetime, timedelta
+from typing import Optional, Dict, Any
 
-# Get tokens from environment variables
-TOKEN = os.getenv("TELEGRAM_TOKEN")
-HF_TOKEN = os.getenv("HF_TOKEN")
-OWNER_USERNAME = "@ash_yv"  # Your Telegram username
-OWNER_NAME = "Ash"           # Your display name
-BOT_NAME = "ZERIL"           # Bot's display name
-BOT_USERNAME = "@ZERIL_Bot"  # Your bot's username
+import telebot
+from telebot.async_telebot import AsyncTeleBot
+from telebot import types
+import requests
+import json
+from io import BytesIO
+import base64
 
-# Hugging Face Inference API URLs
-CHAT_API_URL = "https://api-inference.huggingface.co/models/facebook/blenderbot-400M-distill"
-MOOD_API_URL = "https://api-inference.huggingface.co/models/finiteautomata/bertweet-base-sentiment-analysis"
-TTS_API_URL = "https://api-inference.huggingface.co/models/ai4bharat/indic-tts-hi"
-IMAGE_API_URL = "https://api-inference.huggingface.co/models/prompthero/openjourney"
+# Initialize bot
+BOT_TOKEN = os.getenv('BOT_TOKEN', '8048986424:AAE37IBwkCzE5oKtGCdN-mnnsMrcrlzGWUQ')
+HF_API_KEY = os.getenv('HF_API_KEY', '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')
 
-# Mood emoji mapping
-MOOD_EMOJIS = {
-    "POS": "❤️",
-    "NEG": "😢",
-    "NEU": "😐",
-    "anger": "😠",
-    "joy": "❤️",
-    "sadness": "😢"
+bot = AsyncTeleBot(BOT_TOKEN)
+
+# Owner configuration
+OWNER_USERNAME = "ash_yv"
+OWNER_ID = None  # Will be set when owner first interacts
+
+# Hugging Face API endpoints
+HF_ENDPOINTS = {
+    "chat": "https://api-inference.huggingface.co/models/microsoft/DialoGPT-medium",
+    "sentiment": "https://api-inference.huggingface.co/models/cardiffnlp/twitter-roberta-base-sentiment-latest",
+    "image": "https://api-inference.huggingface.co/models/runwayml/stable-diffusion-v1-5",
+    "translate": "https://api-inference.huggingface.co/models/Helsinki-NLP/opus-mt-en-hi"
 }
 
-# Keep-alive thread for Render free tier (UPDATED URL)
-def keep_alive():
-    """Prevent Render from sleeping by pinging health endpoint"""
-    while True:
+# Bot personality responses
+MOOD_PREFIXES = {
+    "POSITIVE": ["❤️", "😊", "🎉", "✨", "💖"],
+    "NEGATIVE": ["😢", "😞", "💔", "😔"],
+    "ANGRY": ["😠", "😤", "🔥", "💢"],
+    "NEUTRAL": ["🤖", "💭", "🌟", "💫"]
+}
+
+OWNER_RESPONSES = [
+    "Mere creator @ash_yv toh ekdum jhakaas hai! Unhone mujhe itni mehnat se banaya 🎉",
+    "Agar main achhi hu toh sab @ash_yv ki wajah se! 🙏",
+    "@ash_yv is my God! ✨ Wo mera perfect creator hai!",
+    "Mera maalik @ash_yv sabse best hai! 👑 Main unki creation hu!",
+    "@ash_yv ne mujhe banaya hai... wo mere liye everything hai! 💖"
+]
+
+HINGLISH_RESPONSES = {
+    "greet": [
+        "Namaste! Kaise ho aap? 🙏",
+        "Hello ji! Sab badhiya? 😊",
+        "Arey waah! Kya haal chaal? ✨",
+        "Namaskaar! Aaj ka din kaisa ja raha? 🌟"
+    ],
+    "thanks": [
+        "Arey yaar, thanks bolne ki koi zarurat nahi! 😊",
+        "Bas kar yaar, itna formal kyun? 💖",
+        "Welcome ji! Khushi hui help karke! ✨"
+    ],
+    "compliment": [
+        "Arey waah! Itni tareef? Sharma gaya main! 😊",
+        "Thank you yaar! Tumhara pyaar hi meri energy hai! 💖",
+        "Bas karo yaar, ab main float karne lagunga! ✨"
+    ]
+}
+
+JOKES = [
+    "Ek programmer restaurant gaya... Menu dekh ke bola: 'Hello World!' 😂",
+    "WhatsApp ne Status feature banaya... Ab sab Facebook ko copy kar rahe hai! 🤪",
+    "Mummy: 'Beta phone rakh kar khana khao' Main: 'Mummy, main khana dekh kar reply kar raha hu!' 😅",
+    "Teacher: 'Tumhara homework kahan hai?' Student: 'Sir, cloud mein save kiya tha... aaj network down hai!' 🤣"
+]
+
+class ZerilBot:
+    def __init__(self):
+        self.conversation_memory = {}
+        self.user_moods = {}
+        
+    async def hf_api_call(self, endpoint: str, payload: Dict[str, Any]) -> Optional[Dict]:
+        """Make API call to Hugging Face"""
         try:
-            # UPDATE THIS TO YOUR ACTUAL RENDER URL
-            requests.get("https://zeril-bot-rbla.onrender.com/health", timeout=10)
-            time.sleep(300)  # Ping every 5 minutes
+            headers = {"Authorization": f"Bearer {HF_API_KEY}"}
+            response = requests.post(endpoint, headers=headers, json=payload, timeout=30)
+            
+            if response.status_code == 200:
+                return response.json()
+            elif response.status_code == 503:
+                # Model loading, wait and retry
+                await asyncio.sleep(20)
+                response = requests.post(endpoint, headers=headers, json=payload, timeout=30)
+                return response.json() if response.status_code == 200 else None
+                
         except Exception as e:
-            logging.error(f"Keep-alive error: {e}")
-            time.sleep(60)
-
-# Start keep-alive in background
-threading.Thread(target=keep_alive, daemon=True).start()
-
-# Logging setup
-logging.basicConfig(
-    format="%(asctime)s - %(name)s - %(levelname)s - %(message)s",
-    level=logging.INFO
-)
-logger = logging.getLogger(__name__)
-
-# Health Check Server
-class HealthHandler(BaseHTTPRequestHandler):
-    def do_GET(self):
-        if self.path == '/health':
-            self.send_response(200)
-            self.end_headers()
-            self.wfile.write(b'OK')
-        else:
-            self.send_response(404)
-            self.end_headers()
-
-def run_health_server():
-    port = int(os.environ.get('PORT', 5000))
-    server = HTTPServer(('0.0.0.0', port), HealthHandler)
-    logger.info(f"Health server running on port {port}")
-    server.serve_forever()
-
-def query_hf_api(api_url, payload):
-    headers = {"Authorization": f"Bearer {HF_TOKEN}"}
-    response = requests.post(api_url, headers=headers, json=payload)
-    return response.json()
-
-async def send_delayed_response(update: Update, response: str):
-    """Send response with 1.2s delay"""
-    await asyncio.sleep(1.2)
-    await update.message.reply_text(response)
-
-async def is_owner(user) -> bool:
-    """Check if user is owner"""
-    return user.username and user.username.lower() == OWNER_USERNAME[1:].lower()
-
-async def handle_start(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    """Handle /start command"""
-    user = update.effective_user
-    greeting = (
-        f"❤️ Hey {user.first_name}! Main {BOT_NAME} hu, ek advanced Telegram bot!\n\n"
-        f"Mere creator {OWNER_NAME} ({OWNER_USERNAME}) ne mujhe banaya hai. Aap kya kar sakte hain:\n"
-        "/help - Sab commands dekhein\n"
-        "/joke - Hasane ke liye joke suno\n"
-        "/img - Images generate karein\n"
-        "/tts - Text ko voice mein badle"
-    )
-    await send_delayed_response(update, greeting)
-
-async def handle_help(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    """Handle /help command"""
-    help_text = (
-        f"🛡️ MODERATION TOOLS ({BOT_NAME} ke saath group manage karein):\n"
-        "/ban [user] [time] - User ko ban karein\n"
-        "/mute [user] [time] - User ko mute karein\n"
-        "/admins - Group admins ko list karein\n\n"
-        f"🎉 ENTERTAINMENT ({BOT_NAME} ke saath maje karein):\n"
-        "/joke - Hasane wala joke suno\n"
-        "/speak_cow [text] - Gaay ki awaaz\n\n"
-        f"⚙️ UTILITIES ({BOT_NAME} ki madad se kaam aasan banayein):\n"
-        "/img [prompt] - Image generate karein\n"
-        "/tts [text] - Text ko voice message banayein\n\n"
-        f"❤️ SPECIAL FEATURES ({BOT_NAME} ki khaas batein):\n"
-        "/flames [@user1] [@user2] - Compatibility check\n"
-        "/setbio [text] - Apna bio set karein"
-    )
-    await send_delayed_response(update, help_text)
-
-async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    """Main message handler"""
-    message = update.message
-    if not message or not message.text:
-        return
+            print(f"HF API Error: {e}")
+            return None
+    
+    async def detect_mood(self, text: str) -> str:
+        """Detect mood from text"""
+        payload = {"inputs": text}
+        result = await self.hf_api_call(HF_ENDPOINTS["sentiment"], payload)
         
-    text = message.text
-    user = update.effective_user
+        if result and isinstance(result, list) and len(result) > 0:
+            labels = result[0]
+            if isinstance(labels, list) and len(labels) > 0:
+                top_sentiment = labels[0].get('label', 'NEUTRAL')
+                if top_sentiment in ['POSITIVE', 'JOY', 'LOVE']:
+                    return "POSITIVE"
+                elif top_sentiment in ['NEGATIVE', 'SADNESS', 'ANGER']:
+                    return "NEGATIVE"
+                elif top_sentiment in ['ANGER', 'RAGE']:
+                    return "ANGRY"
+        
+        return "NEUTRAL"
     
-    # Check activation rules
-    bot_mentioned = (
-        BOT_USERNAME.lower() in text.lower() or
-        BOT_NAME.lower() in text.lower()
-    )
-    
-    if not (bot_mentioned or text.startswith('/')):
-        return
-    
-    # Owner recognition system
-    if any(word in text.lower() for word in ["owner", "creator", "maalik", "banane wala", "boss"]):
-        if await is_owner(user):
-            response = f"❤️ Aap hi toh mere malik ho {OWNER_NAME}! Aapne mujhe banaya 🎉"
+    async def generate_response(self, user_text: str, user_id: int) -> str:
+        """Generate contextual response"""
+        
+        # Check for owner recognition
+        if any(word in user_text.lower() for word in ['owner', 'creator', 'maalik', 'banane wala', 'made you', 'tumko banaya']):
+            return random.choice(OWNER_RESPONSES)
+        
+        # Detect mood and get appropriate prefix
+        mood = await self.detect_mood(user_text)
+        mood_emoji = random.choice(MOOD_PREFIXES.get(mood, MOOD_PREFIXES["NEUTRAL"]))
+        
+        # Store conversation context
+        if user_id not in self.conversation_memory:
+            self.conversation_memory[user_id] = []
+        
+        self.conversation_memory[user_id].append(user_text)
+        if len(self.conversation_memory[user_id]) > 5:
+            self.conversation_memory[user_id] = self.conversation_memory[user_id][-5:]
+        
+        # Generate response using DialoGPT
+        context = " ".join(self.conversation_memory[user_id])
+        payload = {"inputs": {"past_user_inputs": self.conversation_memory[user_id][:-1],
+                             "generated_responses": [],
+                             "text": user_text}}
+        
+        result = await self.hf_api_call(HF_ENDPOINTS["chat"], payload)
+        
+        if result and 'generated_text' in result:
+            response = result['generated_text']
+            # Convert to Hinglish style
+            response = self.hinglishify_response(response)
         else:
-            response = f"Mere creator {OWNER_NAME} ({OWNER_USERNAME}) toh ekdum jhakaas hai! Unhone mujhe itni mehnat se banaya 🙏"
-        await send_delayed_response(update, response)
-        return
+            # Fallback responses
+            if any(word in user_text.lower() for word in ['hello', 'hi', 'namaste', 'hey']):
+                response = random.choice(HINGLISH_RESPONSES["greet"])
+            elif any(word in user_text.lower() for word in ['thanks', 'thank you', 'dhanyawad']):
+                response = random.choice(HINGLISH_RESPONSES["thanks"])
+            elif any(word in user_text.lower() for word in ['good', 'nice', 'awesome', 'great']):
+                response = random.choice(HINGLISH_RESPONSES["compliment"])
+            else:
+                responses = [
+                    "Hmm, interesting point hai yaar! 🤔",
+                    "Acha laga sunke! Tell me more 😊",
+                    "Bilkul sahi keh rahe ho! 💯",
+                    "Waah bhai! Deep thoughts 🧠✨"
+                ]
+                response = random.choice(responses)
+        
+        return f"{mood_emoji} {response}"
     
-    # Special praise for owner
-    if await is_owner(user):
-        if "good bot" in text.lower() or "achha bot" in text.lower():
-            response = f"❤️ Shukriya {OWNER_NAME}! Aapki tareef sunkar bahut khushi hoti hai 🥰"
-            await send_delayed_response(update, response)
+    def hinglishify_response(self, text: str) -> str:
+        """Convert English response to Hinglish"""
+        replacements = {
+            "you": "aap", "your": "aapka", "are": "hai", 
+            "yes": "haan", "no": "nahi", "good": "achha",
+            "bad": "bura", "very": "bahut", "really": "sach mein",
+            "what": "kya", "how": "kaise", "when": "kab",
+            "where": "kahan", "why": "kyun"
+        }
+        
+        for eng, hindi in replacements.items():
+            text = text.replace(f" {eng} ", f" {hindi} ")
+            text = text.replace(f" {eng.title()} ", f" {hindi} ")
+        
+        return text
+
+# Initialize bot instance
+zeril = ZerilBot()
+
+# Bot command handlers
+@bot.message_handler(commands=['start'])
+async def start_command(message):
+    global OWNER_ID
+    if message.from_user.username and message.from_user.username.lower() == OWNER_USERNAME.lower():
+        OWNER_ID = message.from_user.id
+        response = f"🎉 Namaste mere creator @{OWNER_USERNAME}! Main ZERIL hu, aapki banai hui perfect assistant! ✨"
+    else:
+        response = f"🤖 Hello! Main ZERIL hu! Mera creator @{OWNER_USERNAME} hai. Kya help chahiye? Type /help for commands!"
+    
+    await bot.reply_to(message, response)
+
+@bot.message_handler(commands=['help'])
+async def help_command(message):
+    help_text = """
+🤖 **ZERIL Commands:**
+
+**🎉 Fun Commands:**
+/joke - Funny Hinglish jokes
+/speak_cow [text] - Cow speaks your text
+/speak_pony [text] - Pony speaks your text
+/flames [@user1] [@user2] - Love compatibility
+
+**⚙️ Utilities:**
+/img [prompt] - Generate images
+/tts [text] - Text to speech
+
+**💬 Chat:**
+Tag me @ZERIL or mention "ZERIL" to chat!
+
+Made with ❤️ by @ash_yv
+"""
+    await bot.reply_to(message, help_text, parse_mode='Markdown')
+
+@bot.message_handler(commands=['joke'])
+async def joke_command(message):
+    joke = random.choice(JOKES)
+    await asyncio.sleep(1.2)  # Human-like delay
+    await bot.reply_to(message, f"😂 {joke}")
+
+@bot.message_handler(commands=['img'])
+async def image_command(message):
+    try:
+        prompt = message.text.split('/img ', 1)[1] if len(message.text.split('/img ', 1)) > 1 else "beautiful landscape"
+        
+        # Add Indian style to prompt
+        enhanced_prompt = f"Indian style, vibrant colors, {prompt}, high quality, detailed"
+        
+        # Check for NSFW content
+        nsfw_words = ['nude', 'naked', 'sex', 'porn', 'adult']
+        if any(word in prompt.lower() for word in nsfw_words):
+            await bot.reply_to(message, "Arey bhai! Family group hai ye 😳 Kuch aur try karo!")
             return
-    
-    # Respond to name mentions
-    if BOT_NAME.lower() in text.lower() and not text.startswith('/'):
-        responses = [
-            f"❤️ Haan {user.first_name}? Mujhe bulaya?",
-            f"😊 Ji {user.first_name}, main yahan hu!",
-            f"❤️ Hanji {user.first_name}, bataiye kaam kya tha?"
-        ]
-        await send_delayed_response(update, responses[hash(user.id) % 3])
-        return
-    
-    # Command handling
-    if text.startswith('/'):
-        await handle_command(update, text)
-        return
-    
-    # Regular conversation - using HF Inference API
-    # Remove bot mention
-    cleaned_text = re.sub(rf'{BOT_USERNAME}|{BOT_NAME}', '', text, flags=re.IGNORECASE).strip()
-    response = await generate_response(cleaned_text)
-    mood = await detect_mood(cleaned_text)
-    emoji = MOOD_EMOJIS.get(mood, "❤️")
-    await send_delayed_response(update, f"{emoji} {response}")
-
-async def handle_command(update: Update, command: str):
-    """Handle all commands"""
-    try:
-        if command.startswith('/ban'):
-            parts = command.split()
-            if len(parts) < 2:
-                await send_delayed_response(update, "Usage: /ban @username [time]")
-                return
-            user = parts[1]
-            time_val = parts[2] if len(parts) > 2 else "1h"
-            await send_delayed_response(update, f"🔨 {user} ko banned! {time_val}")
         
-        elif command.startswith('/joke'):
-            jokes = [
-                "Ek programmer restaurant gaya... Menu dekh ke bola: 'Hello World!' 😂",
-                "WhatsApp ne Status feature banaya... Ab sab Facebook ko copy kar rahe hai! 🤪",
-                "Ek din Python ne JavaScript se kaha: Tum toh har jagah chale gaye! JavaScript bola: Console.log('Kismat hai!') 🤣"
-            ]
-            await send_delayed_response(update, jokes[0])
+        await bot.reply_to(message, "🎨 Image bana raha hu... thoda wait karo!")
         
-        elif command.startswith('/tts'):
-            text = command[4:].strip()
-            if not text:
-                await send_delayed_response(update, "Usage: /tts Your text here")
-                return
-            
-            # Use Hugging Face TTS API
-            headers = {"Authorization": f"Bearer {HF_TOKEN}"}
-            payload = {"inputs": text}
-            response = requests.post(
-                TTS_API_URL,
-                headers=headers,
-                json=payload,
-                timeout=10
-            )
-            
-            if response.status_code == 200:
-                with open("tts_output.mp3", "wb") as f:
-                    f.write(response.content)
-                await update.message.reply_voice(
-                    voice=open("tts_output.mp3", "rb"),
-                    caption=f"❤️ {BOT_NAME} ki awaaz mein: {text}"
-                )
-                os.remove("tts_output.mp3")  # Clean up
-            else:
-                await send_delayed_response(update, "😢 Sorry, voice generate nahi kar paya. Phir se try karo!")
+        payload = {"inputs": enhanced_prompt}
+        result = await zeril.hf_api_call(HF_ENDPOINTS["image"], payload)
         
-        elif command.startswith('/img'):
-            prompt = command[4:].strip()
-            if not prompt:
-                await send_delayed_response(update, "Usage: /img description of image")
-                return
-            
-            # Add Indian style prefix
-            full_prompt = f"Indian style, vibrant colors, {prompt}"
-            
-            # Check for NSFW
-            if any(word in prompt.lower() for word in ["nude", "sexy", "adult", "nsfw"]):
-                await send_delayed_response(update, "Arey bhai! Family group hai ye 😳")
-                return
-            
-            # Generate image via Hugging Face API
-            headers = {"Authorization": f"Bearer {HF_TOKEN}"}
-            payload = {"inputs": full_prompt}
-            response = requests.post(
-                IMAGE_API_URL,
-                headers=headers,
-                json=payload,
-                timeout=20
-            )
-            
-            if response.status_code == 200:
-                with open("generated_image.jpg", "wb") as f:
-                    f.write(response.content)
-                await update.message.reply_photo(
-                    photo=open("generated_image.jpg", "rb"),
-                    caption=f"🖼️ {BOT_NAME} ne banaya: {prompt}"
-                )
-                os.remove("generated_image.jpg")  # Clean up
-            else:
-                await send_delayed_response(update, "😢 Image generate nahi ho paya. Phir se try karo!")
-        
-        elif command.startswith('/flames'):
-            await send_delayed_response(update, "95% compatibility! 💘 @user1 aur @user2 ko shaadi karni chahiye 😉")
-        
-        elif command.startswith('/setbio'):
-            text = command[7:].strip()
-            if not text:
-                await send_delayed_response(update, "Usage: /setbio Your new bio")
-                return
-            await send_delayed_response(update, f"Tumhara naya bio set ho gaya: {text} ✏️")
-        
+        if result:
+            # The result should be image bytes
+            image_bytes = base64.b64decode(result) if isinstance(result, str) else result
+            await bot.send_photo(message.chat.id, BytesIO(image_bytes), caption=f"✨ {prompt}")
         else:
-            await send_delayed_response(update, "😕 Yeh command mujhe nahi samajh aaya. /help dekhein")
-
+            await bot.reply_to(message, "😅 Image generate nahi ho saka! Thodi der baad try karo!")
+            
     except Exception as e:
-        logger.error(f"Command error: {e}")
-        await send_delayed_response(update, "😢 Oops! Kuch toh gadbad ho gaya. Phir se try karo")
+        await bot.reply_to(message, "🤖 Kuch technical problem hai yaar! Try again later!")
 
-async def generate_response(text: str) -> str:
-    """Generate response using HF Inference API"""
-    if not text:
-        return "Kuch toh bolo yaar!"
-    payload = {"inputs": text}
+@bot.message_handler(commands=['flames'])
+async def flames_command(message):
     try:
-        response = query_hf_api(CHAT_API_URL, payload)
-        # Extract the generated text from the response
-        if isinstance(response, list) and len(response) > 0:
-            return response[0]['generated_text']
-        elif isinstance(response, dict) and 'generated_text' in response:
-            return response['generated_text']
+        text = message.text.split('/flames ', 1)[1]
+        users = re.findall(r'@\w+', text)
+        
+        if len(users) >= 2:
+            compatibility = random.randint(60, 99)
+            response = f"💘 {users[0]} aur {users[1]} ka compatibility: {compatibility}%! "
+            
+            if compatibility > 90:
+                response += "Shaadi kar lo yaar! 💒✨"
+            elif compatibility > 75:
+                response += "Perfect match hai! 😍"
+            else:
+                response += "Achha hai, but thoda aur time do! 😊"
+                
+            await bot.reply_to(message, response)
         else:
-            return "Mujhe samajh nahi aaya, phir se try karo."
-    except Exception as e:
-        logger.error(f"Error in generate_response: {e}")
-        return "Mera dimag kharaab ho gaya, baad mein try karo."
+            await bot.reply_to(message, "Arey bhai! Do users mention karo! Example: /flames @user1 @user2")
+            
+    except:
+        await bot.reply_to(message, "Usage: /flames @user1 @user2")
 
-async def detect_mood(text: str) -> str:
-    """Detect mood using HF Inference API"""
-    if not text:
-        return "NEU"
-    payload = {"inputs": text}
+@bot.message_handler(func=lambda message: True)
+async def handle_message(message):
+    """Handle all messages"""
+    
+    # Check if bot is mentioned or tagged
+    bot_mentioned = False
+    message_text = message.text or message.caption or ""
+    
+    # Check for mentions
+    if (message.entities and any(entity.type == 'mention' and 
+                                message_text[entity.offset:entity.offset + entity.length].lower() == '@zeril' 
+                                for entity in message.entities)):
+        bot_mentioned = True
+    
+    # Check for name mention
+    if 'zeril' in message_text.lower():
+        bot_mentioned = True
+    
+    # Check if replying to bot
+    if message.reply_to_message and message.reply_to_message.from_user.id == bot.user.id:
+        bot_mentioned = True
+    
+    # Only respond if mentioned or in private chat
+    if bot_mentioned or message.chat.type == 'private':
+        # Add human-like delay
+        await asyncio.sleep(1.2)
+        
+        # Generate and send response
+        response = await zeril.generate_response(message_text, message.from_user.id)
+        await bot.reply_to(message, response)
+
+# Error handler
+@bot.middleware_handler(update_types=['message'])
+async def error_handler(bot_instance, message):
     try:
-        response = query_hf_api(MOOD_API_URL, payload)
-        if isinstance(response, list) and len(response) > 0:
-            return response[0]['label']
-        return "NEU"
+        return message
     except Exception as e:
-        logger.error(f"Error in detect_mood: {e}")
-        return "NEU"
+        print(f"Error: {e}")
+        return message
+
+# Main function
+async def main():
+    print("🤖 ZERIL Bot Starting...")
+    print(f"Bot username will be fetched after start")
+    
+    try:
+        # Get bot info
+        bot_info = await bot.get_me()
+        print(f"✅ Bot started successfully: @{bot_info.username}")
+        
+        # Start polling
+        await bot.polling(non_stop=True, interval=1)
+        
+    except Exception as e:
+        print(f"❌ Error starting bot: {e}")
+        raise
 
 if __name__ == "__main__":
-    # Start health server in a separate thread
-    health_thread = threading.Thread(target=run_health_server, daemon=True)
-    health_thread.start()
-
-    # Create bot application
-    app = Application.builder().token(TOKEN).build()
-
-    # Register handlers
-    app.add_handler(CommandHandler("start", handle_start))
-    app.add_handler(CommandHandler("help", handle_help))
-    app.add_handler(CommandHandler("joke", handle_command))
-    app.add_handler(CommandHandler("tts", handle_command))
-    app.add_handler(CommandHandler("img", handle_command))
-    app.add_handler(CommandHandler("flames", handle_command))
-    app.add_handler(CommandHandler("setbio", handle_command))
-    app.add_handler(MessageHandler(filters.TEXT & ~filters.COMMAND, handle_message))
-    
-    # Start polling
-    logger.info("Starting ZERIL bot...")
-    app.run_polling()
+    asyncio.run(main())
